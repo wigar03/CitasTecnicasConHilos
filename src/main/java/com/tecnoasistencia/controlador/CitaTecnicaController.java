@@ -52,6 +52,7 @@ public class CitaTecnicaController {
     @FXML private Button btnGuardar;
     @FXML private Button btnActualizar;
     @FXML private Button btnEliminar;
+    @FXML private Button btnExportarCSV;
     @FXML private Label lblContador;
     @FXML private ProgressIndicator progresoCitas;
     @FXML private Label lblEstadoCitas;
@@ -485,5 +486,60 @@ public class CitaTecnicaController {
         cmbFiltroEstado.setValue("Todos");
         dpFiltroFecha.setValue(null);
         aplicarFiltros();
+    }
+
+    /**
+     * Exporta el catálogo actual de citas técnicas a un archivo CSV en segundo plano
+     * con seguimiento de progreso en tiempo real y sin bloquear la UI.
+     */
+    @FXML
+    private void handleExportarCSV() {
+        if (citas.isEmpty()) {
+            Alertas.mostrar(Alert.AlertType.WARNING, "Sin Registros", "No hay citas técnicas disponibles para exportar.");
+            return;
+        }
+
+        javafx.stage.FileChooser fileChooser = new javafx.stage.FileChooser();
+        fileChooser.setTitle("Guardar Reporte de Citas Técnicas (CSV)");
+        fileChooser.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("Archivo CSV (*.csv)", "*.csv"));
+        fileChooser.setInitialFileName("reporte_citas_" + LocalDate.now() + ".csv");
+
+        javafx.stage.Window window = (btnExportarCSV != null && btnExportarCSV.getScene() != null)
+                ? btnExportarCSV.getScene().getWindow() : null;
+
+        java.io.File archivo = fileChooser.showSaveDialog(window);
+        if (archivo == null) return;
+
+        Task<java.io.File> tareaExportar =
+                com.tecnoasistencia.concurrencia.ExportadorReporteAsync.exportarCitasACSVAsync(citas, archivo);
+
+        AsyncUIHelper.vincularTareaAControles(tareaExportar, progresoCitas, btnExportarCSV, btnGuardar, btnActualizar, btnEliminar);
+
+        if (lblEstadoCitas != null) {
+            lblEstadoCitas.textProperty().bind(tareaExportar.messageProperty());
+        }
+
+        tareaExportar.setOnSucceeded(e -> {
+            if (lblEstadoCitas != null) {
+                lblEstadoCitas.textProperty().unbind();
+                lblEstadoCitas.setText("Exportación finalizada");
+            }
+            AsyncUIHelper.desvincularControles(progresoCitas, btnExportarCSV, btnGuardar, btnActualizar, btnEliminar);
+            Alertas.mostrar(Alert.AlertType.INFORMATION, "Exportación Exitosa",
+                    "Se han exportado exitosamente " + citas.size() + " citas técnicas al archivo:\n"
+                            + archivo.getAbsolutePath());
+        });
+
+        tareaExportar.setOnFailed(e -> {
+            if (lblEstadoCitas != null) {
+                lblEstadoCitas.textProperty().unbind();
+                lblEstadoCitas.setText("Error en exportación");
+            }
+            AsyncUIHelper.desvincularControles(progresoCitas, btnExportarCSV, btnGuardar, btnActualizar, btnEliminar);
+            Throwable ex = tareaExportar.getException();
+            Alertas.errorDatos(new IllegalStateException("Error al exportar datos a CSV: " + ex.getMessage(), ex));
+        });
+
+        AppThreadPool.execute(tareaExportar);
     }
 }

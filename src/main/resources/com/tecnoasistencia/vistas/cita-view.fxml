@@ -92,6 +92,7 @@
                     <DatePicker fx:id="dpFiltroFecha" prefWidth="145"/>
                     <Button text="Limpiar filtros" onAction="#handleLimpiarFiltros"/>
                     <Button text="Recargar" onAction="#cargarDatos"/>
+                    <Button fx:id="btnExportarCSV" text="Exportar CSV" onAction="#handleExportarCSV" style="-fx-background-color: #059669; -fx-text-fill: white; -fx-font-weight: bold;"/>
                 </FlowPane>
                 <Separator/>
                 <TableView fx:id="tblCitas" VBox.vgrow="ALWAYS">
