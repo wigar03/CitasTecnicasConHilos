@@ -42,7 +42,47 @@ public class App extends Application {
             }
         });
 
-        Scene scene = new Scene(panel, 1220, 760);
+        // Iniciar hilo demonio de monitoreo continuo de conexión
+        com.tecnoasistencia.concurrencia.MonitorConexion monitor = com.tecnoasistencia.concurrencia.MonitorConexion.getInstance();
+        monitor.iniciar();
+
+        // Barra inferior de estado global y monitoreo concurrente
+        javafx.scene.layout.HBox statusBar = new javafx.scene.layout.HBox(12);
+        statusBar.setPadding(new javafx.geometry.Insets(6, 16, 6, 16));
+        statusBar.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        statusBar.setStyle("-fx-background-color: #0f172a; -fx-border-color: #1e293b; -fx-border-width: 1 0 0 0;");
+
+        javafx.scene.control.Label lblAppInfo = new javafx.scene.control.Label("TecnoAsistencia | Concurrencia Multihilo Activa");
+        lblAppInfo.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 11px; -fx-font-weight: bold;");
+
+        javafx.scene.layout.Region spacer = new javafx.scene.layout.Region();
+        javafx.scene.layout.HBox.setHgrow(spacer, javafx.scene.layout.Priority.ALWAYS);
+
+        javafx.scene.control.Label lblDetalleConexion = new javafx.scene.control.Label();
+        lblDetalleConexion.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 11px;");
+        lblDetalleConexion.textProperty().bind(monitor.detalleProperty());
+
+        javafx.scene.control.Label lblBadgeConexion = new javafx.scene.control.Label();
+        lblBadgeConexion.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-padding: 2 8 2 8; -fx-background-radius: 10;");
+
+        monitor.estadoProperty().addListener((obs, anterior, nuevo) -> {
+            if (nuevo != null) {
+                lblBadgeConexion.setText(nuevo.getEtiqueta());
+                lblBadgeConexion.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-padding: 2 8 2 8; -fx-background-radius: 10; "
+                        + "-fx-text-fill: white; -fx-background-color: " + nuevo.getColorHex() + ";");
+            }
+        });
+        lblBadgeConexion.setText(monitor.getEstadoActual().getEtiqueta());
+        lblBadgeConexion.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-padding: 2 8 2 8; -fx-background-radius: 10; "
+                + "-fx-text-fill: white; -fx-background-color: " + monitor.getEstadoActual().getColorHex() + ";");
+
+        statusBar.getChildren().addAll(lblAppInfo, spacer, lblDetalleConexion, lblBadgeConexion);
+
+        javafx.scene.layout.BorderPane rootLayout = new javafx.scene.layout.BorderPane();
+        rootLayout.setCenter(panel);
+        rootLayout.setBottom(statusBar);
+
+        Scene scene = new Scene(rootLayout, 1220, 780);
         stage.setTitle("TecnoAsistencia Nicaragua S.A. - Sistema de Gestión de Citas Técnicas");
         stage.setMinWidth(1100);
         stage.setMinHeight(700);
@@ -52,9 +92,11 @@ public class App extends Application {
 
     @Override
     public void stop() throws Exception {
+        com.tecnoasistencia.concurrencia.MonitorConexion.getInstance().detener();
         com.tecnoasistencia.concurrencia.AppThreadPool.shutdown();
         super.stop();
     }
+
 
     public static void main(String[] args) {
         launch(args);
