@@ -8,8 +8,11 @@ module com.tecnoasistencia {
     opens com.tecnoasistencia to javafx.fxml;
     opens com.tecnoasistencia.controlador to javafx.fxml;
     opens com.tecnoasistencia.modelo to javafx.base, javafx.fxml;
+    opens com.tecnoasistencia.concurrencia to javafx.base, javafx.fxml;
 
     exports com.tecnoasistencia;
     exports com.tecnoasistencia.controlador;
     exports com.tecnoasistencia.modelo;
+    exports com.tecnoasistencia.concurrencia;
 }
+

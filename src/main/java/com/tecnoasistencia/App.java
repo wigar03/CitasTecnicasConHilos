@@ -50,6 +50,12 @@ public class App extends Application {
         stage.show();
     }
 
+    @Override
+    public void stop() throws Exception {
+        com.tecnoasistencia.concurrencia.AppThreadPool.shutdown();
+        super.stop();
+    }
+
     public static void main(String[] args) {
         launch(args);
     }
