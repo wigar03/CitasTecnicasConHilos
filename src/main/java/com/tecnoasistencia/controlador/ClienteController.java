@@ -526,11 +526,67 @@ public class ClienteController implements Initializable {
     }
 
     /**
-     * Registra un nuevo cliente validando campos obligatorios y formato de correo (RF02, RF07).
+     * Valida en memoria los campos obligatorios, longitudes máximas y formato de correo.
+     * Retorna true si los datos son sintácticamente válidos.
+     */
+    private boolean validarCamposEnMemoria() {
+        try {
+            Validaciones.validarNombreOApellido(txtNombres.getText(), "Nombres");
+        } catch (IllegalArgumentException e) {
+            animarError(txtNombres);
+            mostrarAlerta(Alert.AlertType.WARNING, "Validación de Nombres", e.getMessage());
+            txtNombres.requestFocus();
+            return false;
+        }
+
+        try {
+            Validaciones.validarNombreOApellido(txtApellidos.getText(), "Apellidos");
+        } catch (IllegalArgumentException e) {
+            animarError(txtApellidos);
+            mostrarAlerta(Alert.AlertType.WARNING, "Validación de Apellidos", e.getMessage());
+            txtApellidos.requestFocus();
+            return false;
+        }
+
+        try {
+            Validaciones.validarTelefono(txtTelefono.getText());
+        } catch (IllegalArgumentException e) {
+            animarError(txtTelefono);
+            mostrarAlerta(Alert.AlertType.WARNING, "Validación de Teléfono", e.getMessage());
+            txtTelefono.requestFocus();
+            return false;
+        }
+
+        String correo = txtCorreo.getText() != null ? txtCorreo.getText().trim() : "";
+        if (correo.isEmpty()) {
+            animarError(txtCorreo);
+            mostrarAlerta(Alert.AlertType.WARNING, "Campo Obligatorio", "El campo 'Correo' es obligatorio.");
+            txtCorreo.requestFocus();
+            return false;
+        }
+        if (correo.length() > 120) {
+            animarError(txtCorreo);
+            mostrarAlerta(Alert.AlertType.WARNING, "Longitud Excedida", "El campo 'Correo' no puede exceder 120 caracteres.");
+            txtCorreo.requestFocus();
+            return false;
+        }
+        if (!Validaciones.correoValido(correo)) {
+            animarError(txtCorreo);
+            mostrarAlerta(Alert.AlertType.WARNING, "Formato Inválido", "El formato del correo electrónico no es válido. Ejemplo: usuario@dominio.com");
+            txtCorreo.requestFocus();
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Registra un nuevo cliente de forma asíncrona mediante un hilo secundario (Task).
+     * Previene bloqueo de la interfaz y deshabilita botones durante la inserción en PostgreSQL.
      */
     @FXML
     private void handleGuardar(ActionEvent event) {
-        if (!validarFormulario(false)) {
+        if (!validarCamposEnMemoria()) {
             return;
         }
 
@@ -541,20 +597,51 @@ public class ClienteController implements Initializable {
         boolean activo = chkActivo.isSelected();
 
         Cliente nuevoCliente = new Cliente(nombres, apellidos, telefono, correo, activo);
-        boolean insertado = clienteDAO.insertarCliente(nuevoCliente);
 
-        if (insertado) {
-            mostrarAlerta(Alert.AlertType.INFORMATION, "Operación Exitosa", "Cliente registrado exitosamente.");
-            txtBuscar.clear();
-            limpiarFormulario();
-            cargarClientes();
-        } else {
-            mostrarAlerta(Alert.AlertType.ERROR, "Error de Inserción", "No se pudo registrar el cliente. Verifique la conexión a la base de datos.");
-        }
+        Task<Boolean> tareaGuardar = new Task<>() {
+            @Override
+            protected Boolean call() {
+                if (clienteDAO.existeCorreo(correo, 0)) {
+                    throw new IllegalArgumentException("Ya existe un cliente registrado con el correo: " + correo);
+                }
+                return clienteDAO.insertarCliente(nuevoCliente);
+            }
+        };
+
+        AsyncUIHelper.vincularTareaAControles(tareaGuardar, progresoCarga, btnGuardar, btnActualizar, btnEliminar, btnLimpiar);
+        if (lblEstadoAsync != null) lblEstadoAsync.setText("Guardando cliente en segundo plano...");
+
+        tareaGuardar.setOnSucceeded(e -> {
+            AsyncUIHelper.desvincularControles(progresoCarga, btnGuardar, btnActualizar, btnEliminar, btnLimpiar);
+            boolean insertado = tareaGuardar.getValue();
+            if (insertado) {
+                mostrarAlerta(Alert.AlertType.INFORMATION, "Operación Exitosa", "Cliente registrado exitosamente.");
+                txtBuscar.clear();
+                limpiarFormulario();
+                cargarClientes();
+            } else {
+                mostrarAlerta(Alert.AlertType.ERROR, "Error de Inserción", "No se pudo registrar el cliente. Verifique la conexión a la base de datos.");
+            }
+        });
+
+        tareaGuardar.setOnFailed(e -> {
+            AsyncUIHelper.desvincularControles(progresoCarga, btnGuardar, btnActualizar, btnEliminar, btnLimpiar);
+            btnGuardar.setDisable(false);
+            Throwable ex = tareaGuardar.getException();
+            if (ex instanceof IllegalArgumentException iae) {
+                animarError(txtCorreo);
+                mostrarAlerta(Alert.AlertType.WARNING, "Correo Duplicado", iae.getMessage());
+                txtCorreo.requestFocus();
+            } else {
+                Alertas.errorDatos(new IllegalStateException(ex.getMessage(), ex));
+            }
+        });
+
+        AppThreadPool.execute(tareaGuardar);
     }
 
     /**
-     * Actualiza la información de un cliente existente (RF02, RF07).
+     * Actualiza la información de un cliente existente ejecutando la consulta en un hilo secundario.
      */
     @FXML
     private void handleActualizar(ActionEvent event) {
@@ -563,7 +650,7 @@ public class ClienteController implements Initializable {
             return;
         }
 
-        if (!validarFormulario(true)) {
+        if (!validarCamposEnMemoria()) {
             return;
         }
 
@@ -575,16 +662,48 @@ public class ClienteController implements Initializable {
         boolean activo = chkActivo.isSelected();
 
         Cliente clienteModificado = new Cliente(id, nombres, apellidos, telefono, correo, activo);
-        boolean actualizado = clienteDAO.actualizarCliente(clienteModificado);
 
-        if (actualizado) {
-            mostrarAlerta(Alert.AlertType.INFORMATION, "Operación Exitosa", "Cliente actualizado exitosamente.");
-            txtBuscar.clear();
-            limpiarFormulario();
-            cargarClientes();
-        } else {
-            mostrarAlerta(Alert.AlertType.ERROR, "Error de Actualización", "No se pudo actualizar el cliente. Verifique la conexión a la base de datos.");
-        }
+        Task<Boolean> tareaActualizar = new Task<>() {
+            @Override
+            protected Boolean call() {
+                if (clienteDAO.existeCorreo(correo, id)) {
+                    throw new IllegalArgumentException("Ya existe un cliente registrado con el correo: " + correo);
+                }
+                return clienteDAO.actualizarCliente(clienteModificado);
+            }
+        };
+
+        AsyncUIHelper.vincularTareaAControles(tareaActualizar, progresoCarga, btnGuardar, btnActualizar, btnEliminar, btnLimpiar);
+        if (lblEstadoAsync != null) lblEstadoAsync.setText("Actualizando cliente en segundo plano...");
+
+        tareaActualizar.setOnSucceeded(e -> {
+            AsyncUIHelper.desvincularControles(progresoCarga, btnGuardar, btnActualizar, btnEliminar, btnLimpiar);
+            boolean actualizado = tareaActualizar.getValue();
+            if (actualizado) {
+                mostrarAlerta(Alert.AlertType.INFORMATION, "Operación Exitosa", "Cliente actualizado exitosamente.");
+                txtBuscar.clear();
+                limpiarFormulario();
+                cargarClientes();
+            } else {
+                mostrarAlerta(Alert.AlertType.ERROR, "Error de Actualización", "No se pudo actualizar el cliente. Verifique la conexión a la base de datos.");
+            }
+        });
+
+        tareaActualizar.setOnFailed(e -> {
+            AsyncUIHelper.desvincularControles(progresoCarga, btnGuardar, btnActualizar, btnEliminar, btnLimpiar);
+            btnActualizar.setDisable(false);
+            btnEliminar.setDisable(false);
+            Throwable ex = tareaActualizar.getException();
+            if (ex instanceof IllegalArgumentException iae) {
+                animarError(txtCorreo);
+                mostrarAlerta(Alert.AlertType.WARNING, "Correo Duplicado", iae.getMessage());
+                txtCorreo.requestFocus();
+            } else {
+                Alertas.errorDatos(new IllegalStateException(ex.getMessage(), ex));
+            }
+        });
+
+        AppThreadPool.execute(tareaActualizar);
     }
 
     /**
@@ -610,124 +729,80 @@ public class ClienteController implements Initializable {
         btnEliminar.setDisable(true);
     }
 
-    /**
-     * Valida los campos obligatorios, longitudes máximas y formato de correo electrónico (RF07).
-     * Aplica animación de sacudida (JavaFX shake) en el campo que falle.
-     */
-    private boolean validarFormulario(boolean esEdicion) {
-        try {
-            try {
-                Validaciones.validarNombreOApellido(txtNombres.getText(), "Nombres");
-            } catch (IllegalArgumentException e) {
-                animarError(txtNombres);
-                mostrarAlerta(Alert.AlertType.WARNING, "Validación de Nombres", e.getMessage());
-                txtNombres.requestFocus();
-                return false;
-            }
-
-            try {
-                Validaciones.validarNombreOApellido(txtApellidos.getText(), "Apellidos");
-            } catch (IllegalArgumentException e) {
-                animarError(txtApellidos);
-                mostrarAlerta(Alert.AlertType.WARNING, "Validación de Apellidos", e.getMessage());
-                txtApellidos.requestFocus();
-                return false;
-            }
-
-            try {
-                Validaciones.validarTelefono(txtTelefono.getText());
-            } catch (IllegalArgumentException e) {
-                animarError(txtTelefono);
-                mostrarAlerta(Alert.AlertType.WARNING, "Validación de Teléfono", e.getMessage());
-                txtTelefono.requestFocus();
-                return false;
-            }
-
-            String correo = txtCorreo.getText() != null ? txtCorreo.getText().trim() : "";
-            if (correo.isEmpty()) {
-                animarError(txtCorreo);
-                mostrarAlerta(Alert.AlertType.WARNING, "Campo Obligatorio", "El campo 'Correo' es obligatorio.");
-                txtCorreo.requestFocus();
-                return false;
-            }
-            if (correo.length() > 120) {
-                animarError(txtCorreo);
-                mostrarAlerta(Alert.AlertType.WARNING, "Longitud Excedida", "El campo 'Correo' no puede exceder 120 caracteres.");
-                txtCorreo.requestFocus();
-                return false;
-            }
-            if (!Validaciones.correoValido(correo)) {
-                animarError(txtCorreo);
-                mostrarAlerta(Alert.AlertType.WARNING, "Formato Inválido", "El formato del correo electrónico no es válido. Ejemplo: usuario@dominio.com");
-                txtCorreo.requestFocus();
-                return false;
-            }
-
-            int idExcluir = esEdicion ? Integer.parseInt(txtId.getText().trim()) : 0;
-            if (clienteDAO.existeCorreo(correo, idExcluir)) {
-                animarError(txtCorreo);
-                mostrarAlerta(Alert.AlertType.WARNING, "Correo Duplicado", "Ya existe un cliente registrado con el correo: " + correo);
-                txtCorreo.requestFocus();
-                return false;
-            }
-
-            return true;
-        } catch (IllegalStateException e) {
-            Alertas.errorDatos(e);
-            return false;
-        }
-    }
-
     private void mostrarAlerta(Alert.AlertType tipo, String titulo, String mensaje) {
         Alertas.mostrar(tipo, titulo, mensaje);
     }
 
     /**
-     * Elimina físicamente un cliente tras confirmación obligatoria (RF02, RF08).
-     * Previene la eliminación si el cliente tiene citas técnicas asociadas e informa el motivo.
+     * Elimina físicamente un cliente tras confirmación, ejecutando las comprobaciones
+     * de integridad referencial y borrado en un hilo secundario sin congelar la interfaz.
      */
     @FXML
     private void handleEliminar(ActionEvent event) {
-        try {
-            if (txtId.getText() == null || txtId.getText().trim().isEmpty()) {
-                mostrarAlerta(Alert.AlertType.WARNING, "Selección Requerida", "Debe seleccionar un cliente de la tabla para eliminarlo.");
-                return;
+        if (txtId.getText() == null || txtId.getText().trim().isEmpty()) {
+            mostrarAlerta(Alert.AlertType.WARNING, "Selección Requerida", "Debe seleccionar un cliente de la tabla para eliminarlo.");
+            return;
+        }
+
+        int id = Integer.parseInt(txtId.getText().trim());
+        String nombreCompleto = txtNombres.getText().trim() + " " + txtApellidos.getText().trim();
+
+        // Solicitar confirmación en el hilo de UI
+        Alert confirmacion = new Alert(Alert.AlertType.CONFIRMATION);
+        confirmacion.setTitle("Confirmar Eliminación");
+        confirmacion.setHeaderText("¿Está seguro de eliminar al cliente?");
+        confirmacion.setContentText("Esta acción eliminará permanentemente al cliente '" + nombreCompleto + "'. ¿Desea continuar?");
+
+        Optional<ButtonType> respuesta = confirmacion.showAndWait();
+        if (respuesta.isEmpty() || respuesta.get() != ButtonType.OK) {
+            return;
+        }
+
+        Task<Integer> tareaEliminar = new Task<>() {
+            @Override
+            protected Integer call() {
+                // Código 1: tiene citas asociadas
+                if (clienteDAO.tieneCitasAsociadas(id)) {
+                    return 1;
+                }
+                // Código 2: eliminado exitosamente; Código 3: falló eliminación
+                return clienteDAO.eliminarCliente(id) ? 2 : 3;
             }
+        };
 
-            int id = Integer.parseInt(txtId.getText().trim());
-            String nombreCompleto = txtNombres.getText().trim() + " " + txtApellidos.getText().trim();
+        AsyncUIHelper.vincularTareaAControles(tareaEliminar, progresoCarga, btnGuardar, btnActualizar, btnEliminar, btnLimpiar);
+        if (lblEstadoAsync != null) lblEstadoAsync.setText("Procesando eliminación en segundo plano...");
 
-            // Solicitar confirmación antes de eliminar (RF08)
-            Alert confirmacion = new Alert(Alert.AlertType.CONFIRMATION);
-            confirmacion.setTitle("Confirmar Eliminación");
-            confirmacion.setHeaderText("¿Está seguro de eliminar al cliente?");
-            confirmacion.setContentText("Esta acción eliminará permanentemente al cliente '" + nombreCompleto + "'. ¿Desea continuar?");
-
-            Optional<ButtonType> respuesta = confirmacion.showAndWait();
-            if (respuesta.isEmpty() || respuesta.get() != ButtonType.OK) {
-                return;
-            }
-
-            // Restricción: No se permite eliminar un cliente que tenga citas técnicas asociadas (RF08)
-            if (clienteDAO.tieneCitasAsociadas(id)) {
+        tareaEliminar.setOnSucceeded(e -> {
+            AsyncUIHelper.desvincularControles(progresoCarga, btnGuardar, btnActualizar, btnEliminar, btnLimpiar);
+            int resultado = tareaEliminar.getValue();
+            if (resultado == 1) {
                 mostrarAlerta(Alert.AlertType.WARNING, "Eliminación Restringida",
                         "No se puede eliminar el cliente '" + nombreCompleto + "' porque tiene citas técnicas registradas en el sistema.\n\n"
-                                + "Para proceder con la eliminación física del cliente, primero debe eliminar las citas técnicas asociadas; cancelarlas no elimina la relación.");
-                return;
-            }
-
-            boolean eliminado = clienteDAO.eliminarCliente(id);
-            if (eliminado) {
+                                + "Para proceder con la eliminación física del cliente, primero debe eliminar las citas técnicas asociadas.");
+                btnEliminar.setDisable(false);
+                btnActualizar.setDisable(false);
+            } else if (resultado == 2) {
                 mostrarAlerta(Alert.AlertType.INFORMATION, "Operación Exitosa", "Cliente eliminado exitosamente.");
                 txtBuscar.clear();
                 limpiarFormulario();
                 cargarClientes();
             } else {
                 mostrarAlerta(Alert.AlertType.ERROR, "Error de Eliminación", "No se pudo eliminar el cliente. Ocurrió un error en la base de datos.");
+                btnEliminar.setDisable(false);
+                btnActualizar.setDisable(false);
             }
-        } catch (IllegalStateException e) {
-            Alertas.errorDatos(e);
-        }
+        });
+
+        tareaEliminar.setOnFailed(e -> {
+            AsyncUIHelper.desvincularControles(progresoCarga, btnGuardar, btnActualizar, btnEliminar, btnLimpiar);
+            btnEliminar.setDisable(false);
+            btnActualizar.setDisable(false);
+            Throwable ex = tareaEliminar.getException();
+            Alertas.errorDatos(new IllegalStateException(ex.getMessage(), ex));
+        });
+
+        AppThreadPool.execute(tareaEliminar);
     }
 
     /**
