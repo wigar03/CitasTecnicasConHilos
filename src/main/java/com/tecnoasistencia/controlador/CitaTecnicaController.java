@@ -56,6 +56,12 @@ public class CitaTecnicaController {
     @FXML private ProgressIndicator progresoCitas;
     @FXML private Label lblEstadoCitas;
 
+    @FXML private Label lblMetricaTotal;
+    @FXML private Label lblMetricaPendientes;
+    @FXML private Label lblMetricaCompletadas;
+    @FXML private Label lblMetricaCanceladas;
+    @FXML private Label lblMetricaEfectividad;
+
     public record DatosCargaCitas(ObservableList<Cliente> clientes, ObservableList<CitaTecnica> citas) {}
 
     private final CitaTecnicaDAO citaDAO = new CitaTecnicaDAO();
@@ -432,6 +438,27 @@ public class CitaTecnicaController {
         });
 
         lblContador.setText("Citas mostradas: " + filtradas.size() + " de " + citas.size());
+        actualizarMetricasAsync();
+    }
+
+    /**
+     * Calcula de forma asíncrona en un hilo de AppThreadPool las métricas agregadas
+     * sin bloquear la tabla ni los filtros.
+     */
+    public void actualizarMetricasAsync() {
+        Task<com.tecnoasistencia.concurrencia.ServicioMetricas.ResumenEstadisticas> tareaMetricas =
+                com.tecnoasistencia.concurrencia.ServicioMetricas.calcularMetricasAsync(citas, cmbCliente.getItems());
+
+        tareaMetricas.setOnSucceeded(e -> {
+            com.tecnoasistencia.concurrencia.ServicioMetricas.ResumenEstadisticas r = tareaMetricas.getValue();
+            if (lblMetricaTotal != null) lblMetricaTotal.setText("Total: " + r.totalCitas());
+            if (lblMetricaPendientes != null) lblMetricaPendientes.setText("Pendientes: " + r.pendientes());
+            if (lblMetricaCompletadas != null) lblMetricaCompletadas.setText("Completadas: " + r.completadas());
+            if (lblMetricaCanceladas != null) lblMetricaCanceladas.setText("Canceladas: " + r.canceladas());
+            if (lblMetricaEfectividad != null) lblMetricaEfectividad.setText(String.format("Cumplimiento: %.1f%%", r.porcentajeCompletadas()));
+        });
+
+        AppThreadPool.execute(tareaMetricas);
     }
 
     @FXML

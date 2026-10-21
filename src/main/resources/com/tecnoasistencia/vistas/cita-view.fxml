@@ -65,6 +65,20 @@
             <VBox spacing="14" HBox.hgrow="ALWAYS" style="-fx-background-color: white; -fx-border-color: #e2e8f0; -fx-background-radius: 10; -fx-border-radius: 10;">
                 <padding><Insets top="20" right="20" bottom="20" left="20"/></padding>
                 <Label text="Filtros y Consulta de Citas" style="-fx-font-size: 16; -fx-font-weight: bold;"/>
+                <!-- Resumen de Métricas Calculadas en Segundo Plano -->
+                <HBox spacing="10" alignment="CENTER_LEFT" style="-fx-background-color: #f8fafc; -fx-padding: 8 12 8 12; -fx-background-radius: 8; -fx-border-color: #e2e8f0; -fx-border-radius: 8;">
+                    <children>
+                        <Label fx:id="lblMetricaTotal" text="Total: 0" style="-fx-font-weight: bold; -fx-text-fill: #1e293b; -fx-font-size: 11px;"/>
+                        <Separator orientation="VERTICAL"/>
+                        <Label fx:id="lblMetricaPendientes" text="Pendientes: 0" style="-fx-font-weight: bold; -fx-text-fill: #d97706; -fx-font-size: 11px;"/>
+                        <Separator orientation="VERTICAL"/>
+                        <Label fx:id="lblMetricaCompletadas" text="Completadas: 0" style="-fx-font-weight: bold; -fx-text-fill: #16a34a; -fx-font-size: 11px;"/>
+                        <Separator orientation="VERTICAL"/>
+                        <Label fx:id="lblMetricaCanceladas" text="Canceladas: 0" style="-fx-font-weight: bold; -fx-text-fill: #dc2626; -fx-font-size: 11px;"/>
+                        <Separator orientation="VERTICAL"/>
+                        <Label fx:id="lblMetricaEfectividad" text="Cumplimiento: 0%" style="-fx-font-weight: bold; -fx-text-fill: #2563eb; -fx-font-size: 11px;"/>
+                    </children>
+                </HBox>
                 <FlowPane hgap="10" vgap="10" alignment="CENTER_LEFT">
                     <Label text="Estado:"/>
                     <ComboBox fx:id="cmbFiltroEstado" prefWidth="135"/>
