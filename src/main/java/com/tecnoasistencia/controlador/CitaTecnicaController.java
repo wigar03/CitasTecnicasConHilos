@@ -1,0 +1,343 @@
+package com.tecnoasistencia.controlador;
+
+import com.tecnoasistencia.dao.CitaTecnicaDAO;
+import com.tecnoasistencia.dao.ClienteDAO;
+import com.tecnoasistencia.modelo.CitaTecnica;
+import com.tecnoasistencia.modelo.Cliente;
+import com.tecnoasistencia.utilidad.Alertas;
+import com.tecnoasistencia.utilidad.Validaciones;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.collections.transformation.FilteredList;
+import javafx.collections.transformation.SortedList;
+import javafx.fxml.FXML;
+import javafx.scene.control.*;
+import javafx.scene.control.cell.PropertyValueFactory;
+
+import java.sql.SQLException;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+
+/**
+ * Controlador de la vista de citas técnicas (cita-view.fxml).
+ * Implementa las operaciones CRUD, validaciones de negocio, filtros dinámicos
+ * y alertas requeridas por la rúbrica (RF03, RF04, RF06, RF07, RF08, RF09).
+ */
+public class CitaTecnicaController {
+
+    @FXML private ComboBox<Cliente> cmbCliente;
+    @FXML private DatePicker dpFecha;
+    @FXML private TextField txtHora;
+    @FXML private TextField txtServicio;
+    @FXML private TextField txtDescripcion;
+    @FXML private ComboBox<String> cmbEstado;
+    @FXML private TextField txtId;
+
+    @FXML private ComboBox<String> cmbFiltroEstado;
+    @FXML private DatePicker dpFiltroFecha;
+
+    @FXML private TableView<CitaTecnica> tblCitas;
+    @FXML private TableColumn<CitaTecnica, Integer> colId;
+    @FXML private TableColumn<CitaTecnica, String> colCliente;
+    @FXML private TableColumn<CitaTecnica, LocalDate> colFecha;
+    @FXML private TableColumn<CitaTecnica, LocalTime> colHora;
+    @FXML private TableColumn<CitaTecnica, String> colServicio;
+    @FXML private TableColumn<CitaTecnica, String> colDescripcion;
+    @FXML private TableColumn<CitaTecnica, String> colEstado;
+
+    @FXML private Button btnGuardar;
+    @FXML private Button btnActualizar;
+    @FXML private Button btnEliminar;
+    @FXML private Label lblContador;
+
+    private final CitaTecnicaDAO citaDAO = new CitaTecnicaDAO();
+    private final ClienteDAO clienteDAO = new ClienteDAO();
+    private final ObservableList<CitaTecnica> citas = FXCollections.observableArrayList();
+    private final FilteredList<CitaTecnica> filtradas = new FilteredList<>(citas, cita -> true);
+    private int idSeleccionado;
+
+    @FXML
+    public void initialize() {
+        cmbEstado.getItems().setAll(Validaciones.ESTADOS);
+        cmbFiltroEstado.getItems().add("Todos");
+        cmbFiltroEstado.getItems().addAll(Validaciones.ESTADOS);
+        cmbFiltroEstado.setValue("Todos");
+
+        dpFecha.setEditable(false);
+        dpFiltroFecha.setEditable(false);
+
+        // Deshabilitar fechas pasadas en el selector visual para nuevas citas
+        dpFecha.setDayCellFactory(picker -> new DateCell() {
+            @Override
+            public void updateItem(LocalDate date, boolean empty) {
+                super.updateItem(date, empty);
+                if (idSeleccionado == 0 && date != null && date.isBefore(LocalDate.now())) {
+                    setDisable(true);
+                    setStyle("-fx-background-color: #f1f5f9; -fx-text-fill: #94a3b8;");
+                }
+            }
+        });
+
+        // Filtros de entrada física en tiempo real para evitar desbordamientos
+        txtHora.setTextFormatter(Validaciones.crearFiltroLongitud(5));
+        txtServicio.setTextFormatter(Validaciones.crearFiltroLongitud(80));
+        txtDescripcion.setTextFormatter(Validaciones.crearFiltroLongitud(255));
+
+        cmbCliente.setCellFactory(lista -> celdaCliente());
+        cmbCliente.setButtonCell(celdaCliente());
+
+        colId.setCellValueFactory(new PropertyValueFactory<>("id"));
+        colCliente.setCellValueFactory(new PropertyValueFactory<>("nombreCliente"));
+        colFecha.setCellValueFactory(new PropertyValueFactory<>("fecha"));
+        colHora.setCellValueFactory(new PropertyValueFactory<>("hora"));
+        colServicio.setCellValueFactory(new PropertyValueFactory<>("tipoServicio"));
+        colDescripcion.setCellValueFactory(new PropertyValueFactory<>("descripcion"));
+        colEstado.setCellValueFactory(new PropertyValueFactory<>("estado"));
+
+        colFecha.setCellFactory(c -> new TableCell<>() {
+            @Override
+            protected void updateItem(LocalDate valor, boolean empty) {
+                super.updateItem(valor, empty);
+                setText(empty || valor == null ? null : valor.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+            }
+        });
+
+        colHora.setCellFactory(c -> new TableCell<>() {
+            @Override
+            protected void updateItem(LocalTime valor, boolean empty) {
+                super.updateItem(valor, empty);
+                setText(empty || valor == null ? null : valor.format(Validaciones.HORA));
+            }
+        });
+
+        SortedList<CitaTecnica> ordenadas = new SortedList<>(filtradas);
+        ordenadas.comparatorProperty().bind(tblCitas.comparatorProperty());
+        tblCitas.setItems(ordenadas);
+        tblCitas.setPlaceholder(new Label("No hay citas registradas para los filtros seleccionados."));
+
+        tblCitas.getSelectionModel().selectedItemProperty().addListener((obs, anterior, actual) -> {
+            if (actual != null) {
+                cargarFormulario(actual);
+            }
+        });
+
+        cmbFiltroEstado.valueProperty().addListener((obs, anterior, actual) -> aplicarFiltros());
+        dpFiltroFecha.valueProperty().addListener((obs, anterior, actual) -> aplicarFiltros());
+
+        limpiarFormulario();
+        cargarDatos();
+    }
+
+    private ListCell<Cliente> celdaCliente() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(Cliente cliente, boolean empty) {
+                super.updateItem(cliente, empty);
+                if (empty || cliente == null) {
+                    setText(null);
+                } else {
+                    setText(cliente.getId() + " - " + cliente.getNombres() + " " + cliente.getApellidos()
+                            + (cliente.isActivo() ? "" : " (inactivo)"));
+                }
+            }
+        };
+    }
+
+    /**
+     * Recarga la lista de clientes en el ComboBox y las citas en la tabla (RF03, RF09).
+     */
+    @FXML
+    public void cargarDatos() {
+        try {
+            ObservableList<Cliente> clientesActuales = clienteDAO.listarClientes();
+            ObservableList<CitaTecnica> citasActuales = citaDAO.listarCitas();
+
+            cmbCliente.getItems().setAll(clientesActuales);
+            citas.setAll(citasActuales);
+            aplicarFiltros();
+        } catch (SQLException | IllegalStateException e) {
+            Alertas.errorDatos(e);
+        }
+    }
+
+    private void cargarFormulario(CitaTecnica cita) {
+        idSeleccionado = cita.getId();
+        txtId.setText(String.valueOf(cita.getId()));
+
+        cmbCliente.setValue(cmbCliente.getItems().stream()
+                .filter(c -> c.getId() == cita.getClienteId())
+                .findFirst()
+                .orElse(null));
+
+        dpFecha.setValue(cita.getFecha());
+        txtHora.setText(cita.getHora().format(Validaciones.HORA));
+        txtServicio.setText(cita.getTipoServicio());
+        txtDescripcion.setText(cita.getDescripcion());
+        cmbEstado.setValue(cita.getEstado());
+
+        btnGuardar.setDisable(true);
+        btnActualizar.setDisable(false);
+        btnEliminar.setDisable(false);
+    }
+
+    private CitaTecnica leerFormulario() {
+        Cliente cliente = cmbCliente.getValue();
+        if (cliente == null) {
+            throw new IllegalArgumentException("Debe seleccionar un cliente existente de la lista.");
+        }
+
+        // Regla de negocio: No agendar nuevas citas a clientes inactivos
+        Validaciones.validarClienteParaCita(cliente, idSeleccionado != 0);
+
+        if (dpFecha.getValue() == null) {
+            throw new IllegalArgumentException("Seleccione la fecha de la cita.");
+        }
+
+        LocalTime hora = Validaciones.leerHora(txtHora.getText());
+
+        if (cmbEstado.getValue() == null || !Validaciones.ESTADOS.contains(cmbEstado.getValue())) {
+            throw new IllegalArgumentException("Seleccione un estado válido (" + String.join(", ", Validaciones.ESTADOS) + ").");
+        }
+
+        // Regla de negocio: No permitir fechas pasadas ni horas pasadas de hoy
+        Validaciones.validarFechaHoraCita(dpFecha.getValue(), hora, idSeleccionado != 0, cmbEstado.getValue());
+
+        String servicio = Validaciones.textoObligatorio(txtServicio.getText(), "El tipo de servicio", 3, 80);
+        String descripcion = Validaciones.textoObligatorio(txtDescripcion.getText(), "La descripción", 5, 255);
+
+        return new CitaTecnica(
+                idSeleccionado,
+                cliente.getId(),
+                cliente.toString(),
+                dpFecha.getValue(),
+                hora,
+                servicio,
+                descripcion,
+                cmbEstado.getValue()
+        );
+    }
+
+    @FXML
+    private void handleGuardar() {
+        guardar(false);
+    }
+
+    @FXML
+    private void handleActualizar() {
+        guardar(true);
+    }
+
+    private void guardar(boolean actualizar) {
+        try {
+            if (actualizar && idSeleccionado == 0) {
+                throw new IllegalArgumentException("Seleccione una cita técnica de la tabla para actualizar.");
+            }
+
+            CitaTecnica cita = leerFormulario();
+
+            // Regla de negocio: Prevenir colisión de citas (doble cita al mismo cliente en la misma fecha y hora)
+            if (citaDAO.existeCitaCliente(cita.getClienteId(), cita.getFecha(), cita.getHora(), cita.getId())) {
+                Alertas.mostrar(Alert.AlertType.WARNING, "Conflicto de Horario",
+                        "El cliente '" + cita.getNombreCliente() + "' ya tiene una cita técnica agendada para el "
+                                + cita.getFechaFormateada() + " a las " + cita.getHoraFormateada()
+                                + ".\n\nPor favor asigne un horario o fecha diferente para evitar colisión de citas.");
+                return;
+            }
+
+            String accion = actualizar ? "actualizar" : "registrar";
+            String mensajeConfirmacion = "¿Desea " + accion + " la cita para el cliente "
+                    + cita.getNombreCliente() + " el día " + cita.getFechaFormateada()
+                    + " a las " + cita.getHoraFormateada() + "?";
+
+            if (!Alertas.confirmar(actualizar ? "Confirmar Actualización" : "Confirmar Registro", mensajeConfirmacion)) {
+                return;
+            }
+
+            boolean exito = actualizar ? citaDAO.actualizarCita(cita) : citaDAO.insertarCita(cita);
+
+            if (!exito) {
+                Alertas.mostrar(Alert.AlertType.WARNING, "Operación no completada",
+                        "No se pudo completar la operación. El registro podría no existir en la base de datos.");
+                return;
+            }
+
+            Alertas.mostrar(Alert.AlertType.INFORMATION, "Operación Exitosa",
+                    "Cita técnica " + (actualizar ? "actualizada" : "registrada") + " correctamente.");
+
+            limpiarFormulario();
+            cargarDatos();
+        } catch (IllegalArgumentException e) {
+            Alertas.mostrar(Alert.AlertType.WARNING, "Validación de Formulario", e.getMessage());
+        } catch (SQLException e) {
+            Alertas.errorDatos(e);
+        }
+    }
+
+    @FXML
+    private void handleEliminar() {
+        if (idSeleccionado == 0) {
+            Alertas.mostrar(Alert.AlertType.WARNING, "Selección Requerida",
+                    "Seleccione una cita técnica de la tabla para eliminarla.");
+            return;
+        }
+
+        if (!Alertas.confirmar("Confirmar Eliminación",
+                "¿Está seguro de eliminar permanentemente la cita técnica #" + idSeleccionado + "?")) {
+            return;
+        }
+
+        try {
+            if (citaDAO.eliminarCita(idSeleccionado)) {
+                Alertas.mostrar(Alert.AlertType.INFORMATION, "Operación Exitosa",
+                        "Cita técnica #" + idSeleccionado + " eliminada permanentemente.");
+                limpiarFormulario();
+                cargarDatos();
+            } else {
+                Alertas.mostrar(Alert.AlertType.WARNING, "Registro No Encontrado",
+                        "La cita ya no existe en la base de datos. Se actualizará la lista.");
+                cargarDatos();
+            }
+        } catch (SQLException e) {
+            Alertas.errorDatos(e);
+        }
+    }
+
+    @FXML
+    public void limpiarFormulario() {
+        tblCitas.getSelectionModel().clearSelection();
+        idSeleccionado = 0;
+        txtId.clear();
+        cmbCliente.setValue(null);
+        dpFecha.setValue(null);
+        txtHora.clear();
+        txtServicio.clear();
+        txtDescripcion.clear();
+        cmbEstado.setValue("Pendiente");
+
+        btnGuardar.setDisable(false);
+        btnActualizar.setDisable(true);
+        btnEliminar.setDisable(true);
+    }
+
+    @FXML
+    private void aplicarFiltros() {
+        String estado = cmbFiltroEstado.getValue();
+        LocalDate fecha = dpFiltroFecha.getValue();
+
+        filtradas.setPredicate(cita -> {
+            boolean coincideEstado = estado == null || "Todos".equals(estado) || estado.equalsIgnoreCase(cita.getEstado());
+            boolean coincideFecha = fecha == null || fecha.equals(cita.getFecha());
+            return coincideEstado && coincideFecha;
+        });
+
+        lblContador.setText("Citas mostradas: " + filtradas.size() + " de " + citas.size());
+    }
+
+    @FXML
+    private void handleLimpiarFiltros() {
+        cmbFiltroEstado.setValue("Todos");
+        dpFiltroFecha.setValue(null);
+        aplicarFiltros();
+    }
+}
