@@ -163,9 +163,13 @@
                         <HBox alignment="CENTER_LEFT" spacing="10.0">
                             <children>
                                 <Label fx:id="lblContador" text="Total de clientes: 0"/>
+                                <javafx.scene.layout.Region HBox.hgrow="ALWAYS"/>
+                                <javafx.scene.control.ProgressIndicator fx:id="progresoCarga" prefWidth="18.0" prefHeight="18.0" visible="false" managed="false"/>
+                                <Label fx:id="lblEstadoAsync" text="Listo" style="-fx-text-fill: #64748b; -fx-font-size: 11px;"/>
                             </children>
                         </HBox>
                     </children>
+
                 </VBox>
             </children>
         </HBox>

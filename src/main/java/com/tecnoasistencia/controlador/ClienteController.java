@@ -21,11 +21,15 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
 import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.concurrent.Task;
+import com.tecnoasistencia.concurrencia.AppThreadPool;
+import com.tecnoasistencia.concurrencia.AsyncUIHelper;
 import javafx.scene.effect.DropShadow;
 import javafx.scene.layout.Background;
 import javafx.scene.layout.BackgroundFill;
@@ -165,6 +169,12 @@ public class ClienteController implements Initializable {
     @FXML
     private Label lblContador;
 
+    @FXML
+    private ProgressIndicator progresoCarga;
+
+    @FXML
+    private Label lblEstadoAsync;
+
     private ClienteDAO clienteDAO;
     private final ObservableList<Cliente> listaClientes = FXCollections.observableArrayList();
     private final FilteredList<Cliente> clientesFiltrados = new FilteredList<>(listaClientes, c -> true);
@@ -240,19 +250,59 @@ public class ClienteController implements Initializable {
     }
 
     /**
-     * Carga todos los clientes desde la base de datos a través de ClienteDAO
-     * y actualiza el TableView y el contador (RF02, RF09) con animación FadeTransition.
+     * Carga todos los clientes desde la base de datos a través de ClienteDAO en un hilo
+     * secundario mediante JavaFX Task (evita congelar la UI) y actualiza el TableView y el contador.
      */
     public void cargarClientes() {
-        try {
-            ObservableList<Cliente> desdeDB = clienteDAO.listarClientes();
+        Task<ObservableList<Cliente>> tareaCarga = new Task<>() {
+            @Override
+            protected ObservableList<Cliente> call() {
+                return clienteDAO.listarClientes();
+            }
+        };
+
+        tareaCarga.setOnRunning(e -> {
+            if (progresoCarga != null) {
+                progresoCarga.setVisible(true);
+                progresoCarga.setManaged(true);
+            }
+            if (lblEstadoAsync != null) {
+                lblEstadoAsync.setText("Cargando clientes...");
+            }
+        });
+
+        tareaCarga.setOnSucceeded(e -> {
+            if (progresoCarga != null) {
+                progresoCarga.setVisible(false);
+                progresoCarga.setManaged(false);
+            }
+            if (lblEstadoAsync != null) {
+                lblEstadoAsync.setText("Clientes sincronizados");
+            }
+            ObservableList<Cliente> desdeDB = tareaCarga.getValue();
             listaClientes.setAll(desdeDB);
             clientesFiltrados.setPredicate(c -> true);
             actualizarContador(clientesFiltrados.size());
             animarCargaTabla();
-        } catch (IllegalStateException e) {
-            Alertas.errorDatos(e);
-        }
+        });
+
+        tareaCarga.setOnFailed(e -> {
+            if (progresoCarga != null) {
+                progresoCarga.setVisible(false);
+                progresoCarga.setManaged(false);
+            }
+            if (lblEstadoAsync != null) {
+                lblEstadoAsync.setText("Error al cargar");
+            }
+            Throwable ex = tareaCarga.getException();
+            if (ex instanceof IllegalStateException ise) {
+                Alertas.errorDatos(ise);
+            } else {
+                Alertas.errorDatos(new IllegalStateException(ex.getMessage(), ex));
+            }
+        });
+
+        AppThreadPool.execute(tareaCarga);
     }
 
     /**
