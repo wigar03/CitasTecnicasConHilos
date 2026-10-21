@@ -178,6 +178,7 @@ public class ClienteController implements Initializable {
     private ClienteDAO clienteDAO;
     private final ObservableList<Cliente> listaClientes = FXCollections.observableArrayList();
     private final FilteredList<Cliente> clientesFiltrados = new FilteredList<>(listaClientes, c -> true);
+    private Task<ObservableList<Cliente>> tareaBusquedaActual;
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -834,24 +835,58 @@ public class ClienteController implements Initializable {
 
     /**
      * Manejador del botón Buscar (o pulsar Enter en txtBuscar) (RF05).
-     * Ejecuta la consulta directa con PreparedStatement contra PostgreSQL.
+     * Ejecuta la consulta directa con PreparedStatement contra PostgreSQL de forma asíncrona,
+     * cancelando búsquedas anteriores si estuvieran en curso para prevenir condiciones de carrera.
      */
     @FXML
     private void handleBuscar(ActionEvent event) {
         String criterio = txtBuscar.getText() != null ? txtBuscar.getText().trim() : "";
         if (criterio.isEmpty()) {
             cargarClientes();
-        } else {
-            try {
-                ObservableList<Cliente> resultadoDB = clienteDAO.buscarClientes(criterio);
+            return;
+        }
+
+        // Cancelar tarea de búsqueda previa si aún estuviese activa
+        if (tareaBusquedaActual != null && tareaBusquedaActual.isRunning()) {
+            tareaBusquedaActual.cancel(true);
+        }
+
+        tareaBusquedaActual = new Task<>() {
+            @Override
+            protected ObservableList<Cliente> call() {
+                return clienteDAO.buscarClientes(criterio);
+            }
+        };
+
+        AsyncUIHelper.vincularTareaAControles(tareaBusquedaActual, progresoCarga, btnBuscar, btnLimpiarBusqueda);
+        if (lblEstadoAsync != null) lblEstadoAsync.setText("Buscando clientes en PostgreSQL...");
+
+        tareaBusquedaActual.setOnSucceeded(e -> {
+            AsyncUIHelper.desvincularControles(progresoCarga, btnBuscar, btnLimpiarBusqueda);
+            if (!tareaBusquedaActual.isCancelled()) {
+                ObservableList<Cliente> resultadoDB = tareaBusquedaActual.getValue();
                 listaClientes.setAll(resultadoDB);
                 clientesFiltrados.setPredicate(c -> true);
                 actualizarContador(resultadoDB.size());
+                if (lblEstadoAsync != null) lblEstadoAsync.setText("Búsqueda completada (" + resultadoDB.size() + " hallados)");
                 animarCargaTabla();
-            } catch (IllegalStateException e) {
-                Alertas.errorDatos(e);
             }
-        }
+        });
+
+        tareaBusquedaActual.setOnFailed(e -> {
+            AsyncUIHelper.desvincularControles(progresoCarga, btnBuscar, btnLimpiarBusqueda);
+            if (!tareaBusquedaActual.isCancelled()) {
+                if (lblEstadoAsync != null) lblEstadoAsync.setText("Error en búsqueda");
+                Throwable ex = tareaBusquedaActual.getException();
+                Alertas.errorDatos(new IllegalStateException(ex.getMessage(), ex));
+            }
+        });
+
+        tareaBusquedaActual.setOnCancelled(e -> {
+            AsyncUIHelper.desvincularControles(progresoCarga, btnBuscar, btnLimpiarBusqueda);
+        });
+
+        AppThreadPool.execute(tareaBusquedaActual);
     }
 
     /**
@@ -859,6 +894,9 @@ public class ClienteController implements Initializable {
      */
     @FXML
     private void handleLimpiarBusqueda(ActionEvent event) {
+        if (tareaBusquedaActual != null && tareaBusquedaActual.isRunning()) {
+            tareaBusquedaActual.cancel(true);
+        }
         txtBuscar.clear();
         cargarClientes();
     }
