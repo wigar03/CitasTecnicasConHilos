@@ -18,6 +18,9 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import javafx.concurrent.Task;
+import com.tecnoasistencia.concurrencia.AppThreadPool;
+import com.tecnoasistencia.concurrencia.AsyncUIHelper;
 
 /**
  * Controlador de la vista de citas técnicas (cita-view.fxml).
@@ -50,6 +53,10 @@ public class CitaTecnicaController {
     @FXML private Button btnActualizar;
     @FXML private Button btnEliminar;
     @FXML private Label lblContador;
+    @FXML private ProgressIndicator progresoCitas;
+    @FXML private Label lblEstadoCitas;
+
+    public record DatosCargaCitas(ObservableList<Cliente> clientes, ObservableList<CitaTecnica> citas) {}
 
     private final CitaTecnicaDAO citaDAO = new CitaTecnicaDAO();
     private final ClienteDAO clienteDAO = new ClienteDAO();
@@ -145,20 +152,59 @@ public class CitaTecnicaController {
     }
 
     /**
-     * Recarga la lista de clientes en el ComboBox y las citas en la tabla (RF03, RF09).
+     * Recarga la lista de clientes en el ComboBox y las citas en la tabla de forma asíncrona
+     * mediante JavaFX Task (RF03, RF09), evitando congelamientos al sincronizar entre pestañas.
      */
     @FXML
     public void cargarDatos() {
-        try {
-            ObservableList<Cliente> clientesActuales = clienteDAO.listarClientes();
-            ObservableList<CitaTecnica> citasActuales = citaDAO.listarCitas();
+        Task<DatosCargaCitas> tarea = new Task<>() {
+            @Override
+            protected DatosCargaCitas call() throws Exception {
+                ObservableList<Cliente> clientesActuales = clienteDAO.listarClientes();
+                ObservableList<CitaTecnica> citasActuales = citaDAO.listarCitas();
+                return new DatosCargaCitas(clientesActuales, citasActuales);
+            }
+        };
 
-            cmbCliente.getItems().setAll(clientesActuales);
-            citas.setAll(citasActuales);
+        tarea.setOnRunning(e -> {
+            if (progresoCitas != null) {
+                progresoCitas.setVisible(true);
+                progresoCitas.setManaged(true);
+            }
+            if (lblEstadoCitas != null) {
+                lblEstadoCitas.setText("Sincronizando datos...");
+            }
+        });
+
+        tarea.setOnSucceeded(e -> {
+            if (progresoCitas != null) {
+                progresoCitas.setVisible(false);
+                progresoCitas.setManaged(false);
+            }
+            if (lblEstadoCitas != null) {
+                lblEstadoCitas.setText("Datos sincronizados");
+            }
+            DatosCargaCitas datos = tarea.getValue();
+            cmbCliente.getItems().setAll(datos.clientes());
+            citas.setAll(datos.citas());
             aplicarFiltros();
-        } catch (SQLException | IllegalStateException e) {
-            Alertas.errorDatos(e);
-        }
+        });
+
+        tarea.setOnFailed(e -> {
+            if (progresoCitas != null) {
+                progresoCitas.setVisible(false);
+                progresoCitas.setManaged(false);
+            }
+            if (lblEstadoCitas != null) {
+                lblEstadoCitas.setText("Error al sincronizar");
+            }
+            Throwable ex = tarea.getException();
+            if (ex instanceof Exception exObj) {
+                Alertas.errorDatos(exObj);
+            }
+        });
+
+        AppThreadPool.execute(tarea);
     }
 
     private void cargarFormulario(CitaTecnica cita) {
