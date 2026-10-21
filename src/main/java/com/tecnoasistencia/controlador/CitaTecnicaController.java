@@ -61,6 +61,7 @@ public class CitaTecnicaController {
     @FXML private Label lblMetricaCompletadas;
     @FXML private Label lblMetricaCanceladas;
     @FXML private Label lblMetricaEfectividad;
+    @FXML private Label lblRecordatorio;
 
     public record DatosCargaCitas(ObservableList<Cliente> clientes, ObservableList<CitaTecnica> citas) {}
 
@@ -138,9 +139,26 @@ public class CitaTecnicaController {
         cmbFiltroEstado.valueProperty().addListener((obs, anterior, actual) -> aplicarFiltros());
         dpFiltroFecha.valueProperty().addListener((obs, anterior, actual) -> aplicarFiltros());
 
+        // Enlazar monitor demonio de recordatorios a la etiqueta visual
+        com.tecnoasistencia.concurrencia.MonitorRecordatorios monitorRec =
+                com.tecnoasistencia.concurrencia.MonitorRecordatorios.getInstance();
+        if (lblRecordatorio != null) {
+            lblRecordatorio.textProperty().bind(monitorRec.mensajeAvisoProperty());
+            monitorRec.tieneAlertasProperty().addListener((obs, ant, tiene) -> {
+                if (Boolean.TRUE.equals(tiene)) {
+                    lblRecordatorio.setStyle("-fx-font-size: 11px; -fx-padding: 3 8 3 8; -fx-background-radius: 10; "
+                            + "-fx-background-color: #fef3c7; -fx-text-fill: #b45309; -fx-font-weight: bold;");
+                } else {
+                    lblRecordatorio.setStyle("-fx-font-size: 11px; -fx-padding: 3 8 3 8; -fx-background-radius: 10; "
+                            + "-fx-background-color: #f1f5f9; -fx-text-fill: #475569; -fx-font-weight: bold;");
+                }
+            });
+        }
+
         limpiarFormulario();
         cargarDatos();
     }
+
 
     private ListCell<Cliente> celdaCliente() {
         return new ListCell<>() {
@@ -193,6 +211,7 @@ public class CitaTecnicaController {
             DatosCargaCitas datos = tarea.getValue();
             cmbCliente.getItems().setAll(datos.clientes());
             citas.setAll(datos.citas());
+            com.tecnoasistencia.concurrencia.MonitorRecordatorios.getInstance().actualizarCache(datos.citas());
             aplicarFiltros();
         });
 

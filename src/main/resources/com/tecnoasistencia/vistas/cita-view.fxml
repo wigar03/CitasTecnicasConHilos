@@ -64,7 +64,13 @@
             <!-- Panel Derecho: Filtros y TableView de Citas -->
             <VBox spacing="14" HBox.hgrow="ALWAYS" style="-fx-background-color: white; -fx-border-color: #e2e8f0; -fx-background-radius: 10; -fx-border-radius: 10;">
                 <padding><Insets top="20" right="20" bottom="20" left="20"/></padding>
-                <Label text="Filtros y Consulta de Citas" style="-fx-font-size: 16; -fx-font-weight: bold;"/>
+                <HBox alignment="CENTER_LEFT" spacing="12">
+                    <children>
+                        <Label text="Filtros y Consulta de Citas" style="-fx-font-size: 16; -fx-font-weight: bold;"/>
+                        <Region HBox.hgrow="ALWAYS"/>
+                        <Label fx:id="lblRecordatorio" text="Recordatorios" style="-fx-font-size: 11px; -fx-padding: 3 8 3 8; -fx-background-radius: 10; -fx-background-color: #f1f5f9; -fx-text-fill: #475569; -fx-font-weight: bold;"/>
+                    </children>
+                </HBox>
                 <!-- Resumen de Métricas Calculadas en Segundo Plano -->
                 <HBox spacing="10" alignment="CENTER_LEFT" style="-fx-background-color: #f8fafc; -fx-padding: 8 12 8 12; -fx-background-radius: 8; -fx-border-color: #e2e8f0; -fx-border-radius: 8;">
                     <children>

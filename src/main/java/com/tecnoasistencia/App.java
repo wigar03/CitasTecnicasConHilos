@@ -42,9 +42,11 @@ public class App extends Application {
             }
         });
 
-        // Iniciar hilo demonio de monitoreo continuo de conexión
+        // Iniciar hilos demonio de monitoreo continuo y recordatorios
         com.tecnoasistencia.concurrencia.MonitorConexion monitor = com.tecnoasistencia.concurrencia.MonitorConexion.getInstance();
         monitor.iniciar();
+
+        com.tecnoasistencia.concurrencia.MonitorRecordatorios.getInstance().iniciar();
 
         // Barra inferior de estado global y monitoreo concurrente
         javafx.scene.layout.HBox statusBar = new javafx.scene.layout.HBox(12);
@@ -92,6 +94,7 @@ public class App extends Application {
 
     @Override
     public void stop() throws Exception {
+        com.tecnoasistencia.concurrencia.MonitorRecordatorios.getInstance().detener();
         com.tecnoasistencia.concurrencia.MonitorConexion.getInstance().detener();
         com.tecnoasistencia.concurrencia.AppThreadPool.shutdown();
         super.stop();
